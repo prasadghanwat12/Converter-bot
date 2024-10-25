@@ -1,8 +1,7 @@
 import os
 import subprocess
 from telegram import Update, Document
-from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext
-from telegram.constants import ParseMode
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
 
 # Function to check and install Calibre if not installed
 def check_and_install_calibre():
@@ -52,37 +51,37 @@ def convert_file(input_file_path, output_file_path):
         print("Conversion failed:", e)
 
 # Command handler for /convert
-def convert_command(update: Update, context: CallbackContext) -> None:
+async def convert_command(update: Update, context: CallbackContext) -> None:
     if update.message.reply_to_message and update.message.reply_to_message.document:
         document = update.message.reply_to_message.document
         file_name = document.file_name
 
         if file_name.endswith(".epub") or file_name.endswith(".pdf"):
             # Download the file
-            file = context.bot.getFile(document.file_id)
-            input_file_path = file.download()
+            file = await context.bot.get_file(document.file_id)
+            input_file_path = file.download_as_bytearray()
 
             # Set output file path with opposite format
             if file_name.endswith(".epub"):
-                output_file_path = input_file_path.replace(".epub", ".pdf")
+                output_file_path = file_name.replace(".epub", ".pdf")
             else:
-                output_file_path = input_file_path.replace(".pdf", ".epub")
+                output_file_path = file_name.replace(".pdf", ".epub")
 
             # Convert file format
             convert_file(input_file_path, output_file_path)
 
             # Send converted file back to the user
             with open(output_file_path, "rb") as converted_file:
-                context.bot.send_document(
+                await context.bot.send_document(
                     chat_id=update.message.chat_id,
                     document=converted_file,
                     reply_to_message_id=update.message.reply_to_message.message_id,
                     caption="Here's your converted file!"
                 )
         else:
-            update.message.reply_text("Please reply to a .epub or .pdf file to convert.")
+            await update.message.reply_text("Please reply to a .epub or .pdf file to convert.")
     else:
-        update.message.reply_text("Please reply to a .epub or .pdf file to convert.")
+        await update.message.reply_text("Please reply to a .epub or .pdf file to convert.")
 
 # Main function to set up the bot
 def main():
@@ -96,15 +95,13 @@ def main():
     check_and_install_calibre()
 
     # Initialize the bot
-    updater = Updater(BOT_TOKEN)
+    application = Application.builder().token(BOT_TOKEN).build()
 
     # Register command handler for /convert
-    dispatcher = updater.dispatcher
-    dispatcher.add_handler(CommandHandler("convert", convert_command))
+    application.add_handler(CommandHandler("convert", convert_command))
 
     # Start the bot
-    updater.start_polling()
-    updater.idle()
+    application.run_polling()
 
 if __name__ == "__main__":
     main()
