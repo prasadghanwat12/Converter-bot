@@ -1,12 +1,11 @@
 import os
 import tempfile
-import pypandoc
+import subprocess
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters
 import logging
-import subprocess
 
-# Ensure Calibre is installed or install it
+# Function to install Calibre if not already installed
 def check_and_install_calibre():
     try:
         subprocess.run(["ebook-convert", "--version"], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -19,12 +18,12 @@ def check_and_install_calibre():
         subprocess.run("sudo sh linux-installer.sh", shell=True)
         print("Calibre installation successful.")
 
-# Function to convert files using pypandoc as an alternative
+# Function to convert files using Calibre's ebook-convert
 def convert_file(input_file_path, output_file_path):
     try:
-        pypandoc.convert_file(input_file_path, 'pdf' if input_file_path.endswith('.epub') else 'epub', outputfile=output_file_path)
+        subprocess.run(["ebook-convert", input_file_path, output_file_path], check=True)
         print("Conversion successful.")
-    except Exception as e:
+    except subprocess.CalledProcessError as e:
         print("Conversion failed:", e)
 
 async def convert_command(update: Update, context):
