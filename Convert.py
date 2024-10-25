@@ -1,6 +1,6 @@
 import os
 import subprocess
-from telegram import Update, Document
+from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
 
 # Function to check and install Calibre if not installed
