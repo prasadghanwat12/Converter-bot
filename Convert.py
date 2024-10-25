@@ -18,11 +18,27 @@ def check_and_install_calibre():
         subprocess.run("sudo sh linux-installer.sh", shell=True)
         print("Calibre installation successful.")
 
-# Function to convert files using Calibre's ebook-convert
+# Function to convert files using Calibre's ebook-convert with enhanced styling
 def convert_file(input_file_path, output_file_path):
     try:
-        subprocess.run(["ebook-convert", input_file_path, output_file_path], check=True)
-        print("Conversion successful.")
+        # Additional ebook-convert options to improve PDF styling
+        options = [
+            "ebook-convert", input_file_path, output_file_path,
+            "--pdf-page-margin-top", "30",      # Add top margin
+            "--pdf-page-margin-bottom", "30",   # Add bottom margin
+            "--pdf-default-font-size", "14",    # Set font size
+            "--pdf-mono-font-size", "12",       # Set monospaced font size
+            "--pdf-sans-family", "Arial",       # Set sans-serif font
+            "--pdf-serif-family", "Times New Roman", # Set serif font
+            "--pdf-page-breaks-before-chapter", # Add page breaks before each chapter
+            "--pdf-header-template", "Page: {page}", # Add header with page number
+            "--chapter", "//*[@class='chapter']", # Identify chapters based on class (example)
+            "--margin-left", "40",              # Set left margin
+            "--margin-right", "40",             # Set right margin
+            "--line-height", "150%",            # Improve line spacing
+        ]
+        subprocess.run(options, check=True)
+        print("Conversion successful with enhanced styling.")
     except subprocess.CalledProcessError as e:
         print("Conversion failed:", e)
 
@@ -49,13 +65,13 @@ async def convert_command(update: Update, context):
     output_extension = '.pdf' if file_extension.lower() == '.epub' else '.epub'
     temp_output_path = os.path.join(tempfile.gettempdir(), f"{file_name}{output_extension}")
 
-    # Convert the file
+    # Convert the file with styling options
     convert_file(temp_input_path, temp_output_path)
 
     # Send the converted file back
     try:
         with open(temp_output_path, "rb") as converted_file:
-            await update.message.reply_document(converted_file, filename=os.path.basename(temp_output_path), caption="Here's your converted file.")
+            await update.message.reply_document(converted_file, filename=os.path.basename(temp_output_path), caption="Here's your converted file with enhanced styling.")
     except FileNotFoundError:
         await update.message.reply_text("Conversion failed. Please try again.")
 
@@ -64,7 +80,7 @@ async def convert_command(update: Update, context):
     os.remove(temp_output_path)
 
 async def start(update: Update, context):
-    await update.message.reply_text("Hello! Reply to a file with /convert to convert between EPUB and PDF formats.")
+    await update.message.reply_text("Hello! Reply to a file with /convert to convert between EPUB and PDF formats with enhanced styling.")
 
 if __name__ == "__main__":
     import os
