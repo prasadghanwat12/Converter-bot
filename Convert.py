@@ -2,12 +2,15 @@ import os
 import subprocess
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
+import tempfile
+
+# Set the bot token directly in code for Colab
+os.environ["BOT_TOKEN"] = "7608853349:AAH5SzDCIpTbmWCUxxseXH05zk5zkEkGZOo"
 
 # Function to check and install Calibre if not installed
 def check_and_install_calibre():
     calibre_cmd = "ebook-convert"
     try:
-        # Check if Calibre's `ebook-convert` command is available
         subprocess.run([calibre_cmd, "--version"], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         print("Calibre is already installed.")
     except (subprocess.CalledProcessError, FileNotFoundError):
@@ -15,14 +18,12 @@ def check_and_install_calibre():
 
         # Suppress output during installation
         with open(os.devnull, 'wb') as devnull:
-            # Update package list and install core dependencies
             subprocess.run(["sudo", "apt", "update"], check=True, stdout=devnull, stderr=devnull)
             subprocess.run([
                 "sudo", "apt", "install", "-y", "wget", "xdg-utils", "python3", "lsof",
                 "libfontconfig1", "libfreetype6", "libxcb-cursor0"
             ], check=True, stdout=devnull, stderr=devnull)
 
-            # Install additional dependencies
             subprocess.run([
                 "sudo", "apt", "install", "-y", "libx11-xcb1", "libxcb1", "libxcb-render0",
                 "libxcb-shm0", "libxcb-xfixes0", "libjpeg8", "libpng16-16", "libglib2.0-0",
@@ -31,18 +32,16 @@ def check_and_install_calibre():
                 "libuuid1", "liblzma5", "zlib1g"
             ], check=True, stdout=devnull, stderr=devnull)
 
-            # Download and install Calibre using the official binary installer
             subprocess.run(["wget", "-nv", "https://download.calibre-ebook.com/linux-installer.sh"], check=True, stdout=devnull, stderr=devnull)
             subprocess.run(["sudo", "sh", "linux-installer.sh"], check=True, stdout=devnull, stderr=devnull)
 
-        # Verify installation
         try:
             subprocess.run(["calibre", "--version"], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             print("Calibre installation successful.")
         except subprocess.CalledProcessError:
             print("Calibre installation failed.")
 
-# Conversion function to EPUB or PDF
+# Conversion function
 def convert_file(input_file_path, output_file_path):
     try:
         subprocess.run(["ebook-convert", input_file_path, output_file_path], check=True)
@@ -59,25 +58,32 @@ async def convert_command(update: Update, context: CallbackContext) -> None:
         if file_name.endswith(".epub") or file_name.endswith(".pdf"):
             # Download the file
             file = await context.bot.get_file(document.file_id)
-            input_file_path = file.download_as_bytearray()
+            file_bytes = await file.download_as_bytearray()
 
-            # Set output file path with opposite format
-            if file_name.endswith(".epub"):
-                output_file_path = file_name.replace(".epub", ".pdf")
-            else:
-                output_file_path = file_name.replace(".pdf", ".epub")
+            # Save to a temporary file
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".epub" if file_name.endswith(".epub") else ".pdf") as temp_input:
+                temp_input.write(file_bytes)
+                temp_input_path = temp_input.name
+
+            # Determine output path and format
+            output_extension = ".pdf" if file_name.endswith(".epub") else ".epub"
+            temp_output_path = temp_input_path.replace(".epub", ".pdf") if file_name.endswith(".epub") else temp_input_path.replace(".pdf", ".epub")
 
             # Convert file format
-            convert_file(input_file_path, output_file_path)
+            convert_file(temp_input_path, temp_output_path)
 
             # Send converted file back to the user
-            with open(output_file_path, "rb") as converted_file:
+            with open(temp_output_path, "rb") as converted_file:
                 await context.bot.send_document(
                     chat_id=update.message.chat_id,
                     document=converted_file,
                     reply_to_message_id=update.message.reply_to_message.message_id,
                     caption="Here's your converted file!"
                 )
+
+            # Clean up temporary files
+            os.remove(temp_input_path)
+            os.remove(temp_output_path)
         else:
             await update.message.reply_text("Please reply to a .epub or .pdf file to convert.")
     else:
