@@ -4,14 +4,15 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
 import tempfile
 
-# Set the bot token directly in code for Colab
-os.environ["BOT_TOKEN"] = "7608853349:AAH5SzDCIpTbmWCUxxseXH05zk5zkEkGZOo"
+# Ensure the bot token is taken from the environment
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+if not BOT_TOKEN:
+    raise ValueError("Bot token not set. Please set the BOT_TOKEN environment variable.")
 
-# Function to check and install Calibre if not installed
+# Function to check and install Calibre with additional dependencies
 def check_and_install_calibre():
-    calibre_cmd = "ebook-convert"
     try:
-        subprocess.run([calibre_cmd, "--version"], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        subprocess.run(["ebook-convert", "--version"], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         print("Calibre is already installed.")
     except (subprocess.CalledProcessError, FileNotFoundError):
         print("Calibre is not installed. Installing...")
@@ -21,15 +22,13 @@ def check_and_install_calibre():
             subprocess.run(["sudo", "apt", "update"], check=True, stdout=devnull, stderr=devnull)
             subprocess.run([
                 "sudo", "apt", "install", "-y", "wget", "xdg-utils", "python3", "lsof",
-                "libfontconfig1", "libfreetype6", "libxcb-cursor0"
-            ], check=True, stdout=devnull, stderr=devnull)
-
-            subprocess.run([
-                "sudo", "apt", "install", "-y", "libx11-xcb1", "libxcb1", "libxcb-render0",
-                "libxcb-shm0", "libxcb-xfixes0", "libjpeg8", "libpng16-16", "libglib2.0-0",
+                "libfontconfig1", "libfreetype6", "libxcb-cursor0", "libxkbfile1",  # Added libxkbfile1 dependency
+                "libx11-xcb1", "libxcb1", "libxcb-render0", "libxcb-shm0",
+                "libxcb-xfixes0", "libjpeg8", "libpng16-16", "libglib2.0-0",
                 "libxrender1", "libxext6", "libxcomposite1", "libxi6", "libxtst6",
                 "libxslt1.1", "libxrandr2", "libcups2", "libdbus-1-3", "libexpat1",
-                "libuuid1", "liblzma5", "zlib1g"
+                "libuuid1", "liblzma5", "zlib1g", "libqt5webkit5",  # Added libqt5webkit5 dependency
+                "qt5-qmake", "qtbase5-dev"  # Added additional Qt libraries
             ], check=True, stdout=devnull, stderr=devnull)
 
             subprocess.run(["wget", "-nv", "https://download.calibre-ebook.com/linux-installer.sh"], check=True, stdout=devnull, stderr=devnull)
@@ -72,18 +71,21 @@ async def convert_command(update: Update, context: CallbackContext) -> None:
             # Convert file format
             convert_file(temp_input_path, temp_output_path)
 
-            # Send converted file back to the user
-            with open(temp_output_path, "rb") as converted_file:
-                await context.bot.send_document(
-                    chat_id=update.message.chat_id,
-                    document=converted_file,
-                    reply_to_message_id=update.message.reply_to_message.message_id,
-                    caption="Here's your converted file!"
-                )
+            # Check if output file exists before attempting to send
+            if os.path.exists(temp_output_path):
+                with open(temp_output_path, "rb") as converted_file:
+                    await context.bot.send_document(
+                        chat_id=update.message.chat_id,
+                        document=converted_file,
+                        reply_to_message_id=update.message.reply_to_message.message_id,
+                        caption="Here's your converted file!"
+                    )
 
-            # Clean up temporary files
-            os.remove(temp_input_path)
-            os.remove(temp_output_path)
+                # Clean up temporary files
+                os.remove(temp_input_path)
+                os.remove(temp_output_path)
+            else:
+                await update.message.reply_text("Conversion failed. Please try again.")
         else:
             await update.message.reply_text("Please reply to a .epub or .pdf file to convert.")
     else:
@@ -91,12 +93,6 @@ async def convert_command(update: Update, context: CallbackContext) -> None:
 
 # Main function to set up the bot
 def main():
-    # Retrieve bot token from environment variable
-    BOT_TOKEN = os.getenv("BOT_TOKEN")
-    if not BOT_TOKEN:
-        print("Bot token not set. Please set the BOT_TOKEN environment variable.")
-        return
-
     # Check and install Calibre if not installed
     check_and_install_calibre()
 
