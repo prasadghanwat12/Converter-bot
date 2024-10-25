@@ -1,99 +1,110 @@
 import os
 import subprocess
-from telegram import Update
-from telegram.ext import Updater, CommandHandler, CallbackContext
-
-# Telegram Bot Token
-BOT_TOKEN = '7608853349:AAH5SzDCIpTbmWCUxxseXH05zk5zkEkGZOo'
-
-# Path to `ebook-convert`
-EBOOK_CONVERT_CMD = "ebook-convert"
+from telegram import Update, Document
+from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext
+from telegram.constants import ParseMode
 
 # Function to check and install Calibre if not installed
 def check_and_install_calibre():
-    global EBOOK_CONVERT_CMD
+    calibre_cmd = "ebook-convert"
     try:
         # Check if Calibre's `ebook-convert` command is available
-        subprocess.run([EBOOK_CONVERT_CMD, "--version"], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        subprocess.run([calibre_cmd, "--version"], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        print("Calibre is already installed.")
     except (subprocess.CalledProcessError, FileNotFoundError):
-        # Check for Calibre in common installation paths
-        if os.path.exists("/usr/bin/ebook-convert"):
-            EBOOK_CONVERT_CMD = "/usr/bin/ebook-convert"
-        elif os.path.exists("/opt/calibre/ebook-convert"):
-            EBOOK_CONVERT_CMD = "/opt/calibre/ebook-convert"
-        else:
-            print("Calibre is not installed. Installing...")
-            # Install Calibre (Debian-based example)
-            subprocess.run(["sudo", "apt", "update"])
-            subprocess.run(["sudo", "apt", "install", "-y", "calibre"])
+        print("Calibre is not installed. Installing...")
 
-# Function to convert file using Calibre
-def convert_file(file_path, output_format):
-    base, _ = os.path.splitext(file_path)
-    output_path = f"{base}.{output_format}"
-    command = [
-        EBOOK_CONVERT_CMD,
-        file_path,
-        output_path,
-        "--embed-font-family",
-        "serif"
-    ]
+        # Suppress output during installation
+        with open(os.devnull, 'wb') as devnull:
+            # Update package list and install core dependencies
+            subprocess.run(["sudo", "apt", "update"], check=True, stdout=devnull, stderr=devnull)
+            subprocess.run([
+                "sudo", "apt", "install", "-y", "wget", "xdg-utils", "python3", "lsof",
+                "libfontconfig1", "libfreetype6", "libxcb-cursor0"
+            ], check=True, stdout=devnull, stderr=devnull)
+
+            # Install additional dependencies
+            subprocess.run([
+                "sudo", "apt", "install", "-y", "libx11-xcb1", "libxcb1", "libxcb-render0",
+                "libxcb-shm0", "libxcb-xfixes0", "libjpeg8", "libpng16-16", "libglib2.0-0",
+                "libxrender1", "libxext6", "libxcomposite1", "libxi6", "libxtst6",
+                "libxslt1.1", "libxrandr2", "libcups2", "libdbus-1-3", "libexpat1",
+                "libuuid1", "liblzma5", "zlib1g"
+            ], check=True, stdout=devnull, stderr=devnull)
+
+            # Download and install Calibre using the official binary installer
+            subprocess.run(["wget", "-nv", "https://download.calibre-ebook.com/linux-installer.sh"], check=True, stdout=devnull, stderr=devnull)
+            subprocess.run(["sudo", "sh", "linux-installer.sh"], check=True, stdout=devnull, stderr=devnull)
+
+        # Verify installation
+        try:
+            subprocess.run(["calibre", "--version"], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            print("Calibre installation successful.")
+        except subprocess.CalledProcessError:
+            print("Calibre installation failed.")
+
+# Conversion function to EPUB or PDF
+def convert_file(input_file_path, output_file_path):
     try:
-        subprocess.run(command, check=True)
-        return output_path
-    except subprocess.CalledProcessError:
-        return None
+        subprocess.run(["ebook-convert", input_file_path, output_file_path], check=True)
+        print("Conversion successful.")
+    except subprocess.CalledProcessError as e:
+        print("Conversion failed:", e)
 
-# Handler for the /convert command
-def convert_handler(update: Update, context: CallbackContext):
-    message = update.message
-    if message.reply_to_message and message.reply_to_message.document:
-        file = message.reply_to_message.document
-        file_name = file.file_name.lower()
+# Command handler for /convert
+def convert_command(update: Update, context: CallbackContext) -> None:
+    if update.message.reply_to_message and update.message.reply_to_message.document:
+        document = update.message.reply_to_message.document
+        file_name = document.file_name
 
-        # Check if the file is .epub or .pdf
-        if file_name.endswith('.epub'):
-            output_format = 'pdf'
-        elif file_name.endswith('.pdf'):
-            output_format = 'epub'
+        if file_name.endswith(".epub") or file_name.endswith(".pdf"):
+            # Download the file
+            file = context.bot.getFile(document.file_id)
+            input_file_path = file.download()
+
+            # Set output file path with opposite format
+            if file_name.endswith(".epub"):
+                output_file_path = input_file_path.replace(".epub", ".pdf")
+            else:
+                output_file_path = input_file_path.replace(".pdf", ".epub")
+
+            # Convert file format
+            convert_file(input_file_path, output_file_path)
+
+            # Send converted file back to the user
+            with open(output_file_path, "rb") as converted_file:
+                context.bot.send_document(
+                    chat_id=update.message.chat_id,
+                    document=converted_file,
+                    reply_to_message_id=update.message.reply_to_message.message_id,
+                    caption="Here's your converted file!"
+                )
         else:
-            message.reply_text("Please reply to a .epub or .pdf file to convert.")
-            return
-
-        # Download the file
-        file_path = file.get_file().download(custom_path=file_name)
-
-        # Convert the file
-        converted_file_path = convert_file(file_path, output_format)
-        
-        if converted_file_path:
-            # Send the converted file as a reply to the original message
-            context.bot.send_document(
-                chat_id=update.effective_chat.id,
-                document=open(converted_file_path, 'rb'),
-                reply_to_message_id=message.reply_to_message.message_id
-            )
-            os.remove(converted_file_path)
-        else:
-            message.reply_text("Conversion failed. Please try again.")
-        os.remove(file_path)
+            update.message.reply_text("Please reply to a .epub or .pdf file to convert.")
     else:
-        message.reply_text("Please reply to a .epub or .pdf file to convert.")
+        update.message.reply_text("Please reply to a .epub or .pdf file to convert.")
 
 # Main function to set up the bot
 def main():
-    # Check and install Calibre if needed
+    # Retrieve bot token from environment variable
+    BOT_TOKEN = os.getenv("BOT_TOKEN")
+    if not BOT_TOKEN:
+        print("Bot token not set. Please set the BOT_TOKEN environment variable.")
+        return
+
+    # Check and install Calibre if not installed
     check_and_install_calibre()
 
-    updater = Updater(BOT_TOKEN, use_context=True)
-    dp = updater.dispatcher
+    # Initialize the bot
+    updater = Updater(BOT_TOKEN)
 
-    # Add command handler for /convert
-    dp.add_handler(CommandHandler("convert", convert_handler))
+    # Register command handler for /convert
+    dispatcher = updater.dispatcher
+    dispatcher.add_handler(CommandHandler("convert", convert_command))
 
     # Start the bot
     updater.start_polling()
     updater.idle()
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
