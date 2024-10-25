@@ -6,23 +6,33 @@ from telegram.ext import Updater, CommandHandler, CallbackContext
 # Telegram Bot Token
 BOT_TOKEN = '7608853349:AAH5SzDCIpTbmWCUxxseXH05zk5zkEkGZOo'
 
+# Path to `ebook-convert`
+EBOOK_CONVERT_CMD = "ebook-convert"
+
 # Function to check and install Calibre if not installed
 def check_and_install_calibre():
+    global EBOOK_CONVERT_CMD
     try:
         # Check if Calibre's `ebook-convert` command is available
-        subprocess.run(["ebook-convert", "--version"], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    except subprocess.CalledProcessError:
-        print("Calibre is not installed. Installing...")
-        # Install Calibre (Debian-based example)
-        subprocess.run(["sudo", "apt", "update"])
-        subprocess.run(["sudo", "apt", "install", "-y", "calibre"])
+        subprocess.run([EBOOK_CONVERT_CMD, "--version"], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        # Check for Calibre in common installation paths
+        if os.path.exists("/usr/bin/ebook-convert"):
+            EBOOK_CONVERT_CMD = "/usr/bin/ebook-convert"
+        elif os.path.exists("/opt/calibre/ebook-convert"):
+            EBOOK_CONVERT_CMD = "/opt/calibre/ebook-convert"
+        else:
+            print("Calibre is not installed. Installing...")
+            # Install Calibre (Debian-based example)
+            subprocess.run(["sudo", "apt", "update"])
+            subprocess.run(["sudo", "apt", "install", "-y", "calibre"])
 
 # Function to convert file using Calibre
 def convert_file(file_path, output_format):
     base, _ = os.path.splitext(file_path)
     output_path = f"{base}.{output_format}"
     command = [
-        "ebook-convert",
+        EBOOK_CONVERT_CMD,
         file_path,
         output_path,
         "--embed-font-family",
